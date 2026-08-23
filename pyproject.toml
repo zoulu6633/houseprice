@@ -1,0 +1,29 @@
+[project]
+name = "houseprice"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Zwt", email = "'14358719+zhong-wentao123@user.noreply.gitee.com'" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "sqlalchemy[asyncio]>=2.0.36",
+    "aiomysql>=0.2.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "pydantic-settings>=2.6.0",
+    "drissionpage>=4.0.0",
+    "jinja2>=3.1.6",
+]
+
+[project.scripts]
+houseprice = "houseprice:main"
+
+[[tool.uv.index]]
+url = "https://pypi.mirrors.ustc.edu.cn/simple/"
+default = true
+
+[build-system]
+requires = ["uv_build>=0.12.3,<0.13.0"]
+build-backend = "uv_build"

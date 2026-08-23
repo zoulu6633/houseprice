@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>南京租房数据报告 · 贝壳</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: #f5f6fa;
+    color: #1f2937;
+  }
+  .container { max-width: 1120px; margin: 0 auto; padding: 24px 20px 60px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 22px; margin: 0; }
+  .sub { color: #6b7280; font-size: 13px; }
+  .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin: 18px 0 16px; }
+  .tab {
+    padding: 6px 16px; border-radius: 999px; background: #fff;
+    border: 1px solid #e2e5ea; cursor: pointer; font-size: 14px; color: #374151;
+  }
+  .tab:hover { border-color: #93c5fd; }
+  .tab.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+  .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .card { background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  .card .label { color: #6b7280; font-size: 13px; }
+  .card .value { font-size: 24px; font-weight: 700; margin-top: 4px; }
+  .card .unit { font-size: 13px; color: #9ca3af; font-weight: 400; margin-left: 2px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+  .panel { background: #fff; border-radius: 12px; padding: 16px 18px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  .panel h3 { font-size: 15px; margin: 0 0 12px; }
+  .bar-row { display: flex; align-items: center; gap: 10px; margin: 7px 0; font-size: 13px; }
+  .bar-label { width: 58px; text-align: right; color: #6b7280; flex-shrink: 0; }
+  .bar-track { flex: 1; background: #eef0f4; border-radius: 999px; height: 18px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #60a5fa, #2563eb); }
+  .bar-value { width: 66px; color: #374151; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+  .top-row { display: flex; align-items: center; gap: 10px; margin: 7px 0; font-size: 13px; }
+  .rank { width: 22px; height: 22px; border-radius: 6px; background: #eef2ff; color: #4f46e5;
+          display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; }
+  .com { width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 0; }
+  .table-wrap { margin-top: 16px; }
+  .table-wrap h3 { margin-bottom: 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+  th, td { padding: 8px 10px; border-bottom: 1px solid #eef0f4; text-align: left; }
+  th { color: #6b7280; font-weight: 500; user-select: none; }
+  th.sortable { cursor: pointer; }
+  th.sortable:hover { color: #2563eb; }
+  td a { color: #2563eb; text-decoration: none; }
+  td a:hover { text-decoration: underline; }
+  .num { text-align: right; }
+  .pager { display: flex; align-items: center; gap: 10px; margin-top: 12px; font-size: 13px; color: #6b7280; }
+  .pager button {
+    padding: 5px 14px; border: 1px solid #e2e5ea; background: #fff; border-radius: 8px;
+    cursor: pointer; font-size: 13px;
+  }
+  .pager button:hover:not(:disabled) { border-color: #93c5fd; color: #2563eb; }
+  .pager button:disabled { opacity: .5; cursor: not-allowed; }
+  @media (max-width: 760px) {
+    .cards { grid-template-columns: repeat(2, 1fr); }
+    .grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>南京租房数据报告 <span class="sub">贝壳租房 · {{ overall.count }} 条房源</span></h1>
+    <span class="sub">数据来源：MySQL house_listings（贝壳平台）</span>
+  </header>
+
+  <nav class="tabs">
+    {% for rep in [overall] + districts %}
+    <button class="tab{% if rep.district == '全部' %} active{% endif %}" data-district="{{ rep.district }}">{{ rep.district }}</button>
+    {% endfor %}
+  </nav>
+
+  <main>
+    {% for rep in [overall] + districts %}
+    <section class="report-panel" data-district="{{ rep.district }}"{% if rep.district != '全部' %} hidden{% endif %}>
+      <div class="cards">
+        <div class="card"><div class="label">房源数量</div><div class="value">{{ rep.count }}<span class="unit">套</span></div></div>
+        <div class="card"><div class="label">平均月租金</div>
+          <div class="value">{% if rep.avg_rent is not none %}{{ rep.avg_rent }}{% else %}-{% endif %}<span class="unit">元</span></div></div>
+        <div class="card"><div class="label">中位月租金</div>
+          <div class="value">{% if rep.median_rent is not none %}{{ rep.median_rent }}{% else %}-{% endif %}<span class="unit">元</span></div></div>
+        <div class="card"><div class="label">平均面积</div>
+          <div class="value">{% if rep.avg_area is not none %}{{ rep.avg_area }}{% else %}-{% endif %}<span class="unit">㎡</span></div></div>
+      </div>
+
+      <div class="grid">
+        <div class="panel">
+          <h3>租金区间分布</h3>
+          {% set maxb = namespace(v=0) %}
+          {% for b in rep.rent_buckets %}{% if b.count > maxb.v %}{% set maxb.v = b.count %}{% endif %}{% endfor %}
+          {% for b in rep.rent_buckets %}
+          <div class="bar-row">
+            <span class="bar-label">{{ b.label }}</span>
+            <div class="bar-track">
+              <div class="bar-fill" style="width:{{ ((b.count / maxb.v * 100)|round(1)) if maxb.v else 0 }}%"></div>
+            </div>
+            <span class="bar-value">{{ b.count }} 套</span>
+          </div>
+          {% endfor %}
+        </div>
+
+        <div class="panel">
+          <h3>热门小区 TOP{{ rep.top_communities|length }}</h3>
+          {% set maxc = namespace(v=0) %}
+          {% for c in rep.top_communities %}{% if c.count > maxc.v %}{% set maxc.v = c.count %}{% endif %}{% endfor %}
+          {% for c in rep.top_communities %}
+          <div class="top-row">
+            <span class="rank">{{ loop.index }}</span>
+            <span class="com" title="{{ c.community_name }}">{{ c.community_name }}</span>
+            <div class="bar-track">
+              <div class="bar-fill" style="width:{{ ((c.count / maxc.v * 100)|round(1)) if maxc.v else 0 }}%"></div>
+            </div>
+            <span class="bar-value">{{ c.count }}套 · {% if c.avg_rent is not none %}{{ c.avg_rent }}元{% else %}-{% endif %}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <h3>房源明细（点击表头可排序）</h3>
+        <table class="listing">
+          <thead>
+            <tr>
+              <th>小区</th>
+              <th>户型</th>
+              <th class="num sortable" data-sort="area">面积 ㎡</th>
+              <th class="num sortable" data-sort="rent">月租金</th>
+              <th>装修</th>
+              <th>链接</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+    {% endfor %}
+  </main>
+</div>
+
+<script id="report-data" type="application/json">{{ data_json|safe }}</script>
+<script>
+  const DATA = JSON.parse(document.getElementById('report-data').textContent);
+
+  document.addEventListener('DOMContentLoaded', () => {
+    // 行政区 Tab 切换：显示对应面板，并填充其明细表
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        const name = tab.dataset.district;
+        document.querySelectorAll('.report-panel').forEach(p => {
+          const show = p.dataset.district === name;
+          p.hidden = !show;
+          if (show) fillTable(p);
+        });
+      });
+    });
+
+    fillTable(document.querySelector('.report-panel:not([hidden])'));
+  });
+
+  function fillTable(panel) {
+    const district = panel.dataset.district;
+    const tbody = panel.querySelector('tbody');
+    const items = DATA.listings.filter(l =>
+      district === '全部' ? true
+        : (district === '未知' ? l.district == null : l.district === district)
+    );
+    tbody.innerHTML = '';
+    const frag = document.createDocumentFragment();
+    items.forEach(it => {
+      const tr = document.createElement('tr');
+      tr.dataset.rent = it.monthly_rent == null ? '' : it.monthly_rent;
+      tr.dataset.area = it.area == null ? '' : it.area;
+      tr.innerHTML =
+        `<td>${it.community_name}</td>` +
+        `<td>${it.layout || '-'}</td>` +
+        `<td class="num">${it.area == null ? '-' : it.area}</td>` +
+        `<td class="num">${it.monthly_rent == null ? '-' : it.monthly_rent}</td>` +
+        `<td>${it.decoration || '-'}</td>` +
+        `<td><a href="${it.source_url}" target="_blank" rel="noopener">详情</a></td>`;
+      frag.appendChild(tr);
+    });
+    tbody.appendChild(frag);
+    initTable(panel.querySelector('table.listing'));
+  }
+
+  function initTable(table) {
+    const tbody = table.querySelector('tbody');
+    const pageSize = 20;
+    let page = 1;
+    let sortKey = '';
+    let sortDesc = true;
+
+    let pager = table.nextElementSibling;
+    if (!pager || !pager.classList.contains('pager')) {
+      pager = document.createElement('div');
+      pager.className = 'pager';
+      table.after(pager);
+    }
+
+    function render() {
+      const rows = Array.from(tbody.rows);
+      let data = rows.slice();
+      if (sortKey) {
+        data.sort((a, b) => {
+          const va = parseFloat(a.dataset[sortKey]);
+          const vb = parseFloat(b.dataset[sortKey]);
+          if (isNaN(va) && isNaN(vb)) return 0;
+          if (isNaN(va)) return 1;
+          if (isNaN(vb)) return -1;
+          return (va - vb) * (sortDesc ? -1 : 1);
+        });
+      }
+      const total = data.length;
+      const pages = Math.max(1, Math.ceil(total / pageSize));
+      page = Math.min(page, pages);
+      const start = (page - 1) * pageSize;
+      data.forEach(r => { r.style.display = 'none'; });
+      data.slice(start, start + pageSize).forEach(r => { r.style.display = ''; });
+      tbody.append(...data);
+
+      pager.textContent = '';
+      const prev = document.createElement('button');
+      prev.textContent = '上一页';
+      prev.disabled = page <= 1;
+      prev.onclick = () => { page--; render(); };
+      const info = document.createElement('span');
+      info.textContent = `${page} / ${pages} · 共 ${total} 条`;
+      const next = document.createElement('button');
+      next.textContent = '下一页';
+      next.disabled = page >= pages;
+      next.onclick = () => { page++; render(); };
+      pager.append(prev, info, next);
+    }
+
+    table.querySelectorAll('th.sortable').forEach(th => {
+      if (th.dataset.bound) return;
+      th.dataset.bound = '1';
+      th.addEventListener('click', () => {
+        const key = th.dataset.sort;
+        if (sortKey === key) {
+          sortDesc = !sortDesc;
+        } else {
+          sortKey = key;
+          sortDesc = true;
+        }
+        page = 1;
+        render();
+      });
+    });
+
+    render();
+  }
+</script>
+</body>
+</html>
