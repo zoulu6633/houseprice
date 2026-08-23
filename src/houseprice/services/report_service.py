@@ -105,7 +105,7 @@ async def build_report(session: AsyncSession) -> dict:
 
     by_district: dict[str, list[HouseListing]] = {}
     for r in rows:
-        key = r.district or "未知"
+        key = r.district or "独栋"
         by_district.setdefault(key, []).append(r)
 
     districts = []

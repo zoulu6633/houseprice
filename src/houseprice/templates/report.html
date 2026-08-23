@@ -170,7 +170,7 @@
     const tbody = panel.querySelector('tbody');
     const items = DATA.listings.filter(l =>
       district === '全部' ? true
-        : (district === '未知' ? l.district == null : l.district === district)
+        : (district === '独栋' ? l.district == null : l.district === district)
     );
     tbody.innerHTML = '';
     const frag = document.createDocumentFragment();
