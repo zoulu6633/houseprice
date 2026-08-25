@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import json
 import random
+import re
 import time
 from pathlib import Path
+from typing import Callable
 
 from DrissionPage import ChromiumOptions, ChromiumPage
 from DrissionPage.errors import ElementNotFoundError
@@ -32,6 +34,13 @@ USER_DATA_PATH = PROJECT_ROOT / ".browser_profile"
 # 各平台 JSON 的默认输出目录（getdata/output）
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[1] / "output"
 
+# 筛选条中常见的非选项导航文本（「不限」「全部」等），发现子区域时默认过滤，各平台通用
+DEFAULT_FILTER_EXCLUDE_NAMES = {
+    "不限", "全部", "全城", "更多", "筛选", "排序", "价格", "户型", "面积", "朝向",
+}
+# 子区域/商圈链接的默认提取正则：取链接中 zufang/ 后的段（如 ninghailu）；其他平台可传自定义正则覆盖
+DEFAULT_BUSINESS_HREF_RE = re.compile(r"/zufang/([a-z0-9]+)/?")
+
 
 def create_page() -> ChromiumPage:
     """按公共配置启动浏览器（固定用户数据目录以保留登录态）。"""
@@ -42,6 +51,167 @@ def create_page() -> ChromiumPage:
     return ChromiumPage(co)
 
 
+# 常见登录页 URL 特征关键词（贝壳/链家登录中心为 passport.ke.com，不含 login 字样，需一并识别）
+_LOGIN_URL_KEYWORDS = ("login", "passport", "verify", "captcha", "antibot", "signin")
+# 人机验证页 URL 特征关键词（命中时按验证页提示，而非登录页）
+_CAPTCHA_URL_KEYWORDS = ("captcha", "verify", "antibot")
+
+
+def _is_login_page(page: ChromiumPage) -> bool:
+    """判断页面是否为登录页：URL 含登录特征关键词，或页面出现密码输入框兜底。"""
+    url = page.url.lower()
+    if any(k in url for k in _LOGIN_URL_KEYWORDS):
+        return True
+    try:
+        return page.ele("css:input[type='password']", timeout=1) is not None
+    except ElementNotFoundError:
+        return False
+
+
+def ensure_loaded(page: ChromiumPage, selector: str, url: str) -> bool:
+    """等待页面出现 selector 匹配的元素；被重定向到登录页时提示手动登录并重载。
+
+    最多尝试两次（首次 + 登录重载后）。返回是否成功加载（元素已出现）；
+    元素始终未出现且不是登录页时返回 False，由调用方按风控/结构问题处理。
+    selector 传 CSS 选择器，内部自动补 css: 前缀。
+    """
+    css = selector if selector.startswith("css:") else f"css:{selector}"
+    for _ in range(2):
+        try:
+            page.ele(css, timeout=15)
+            return True
+        except ElementNotFoundError:
+            if not _is_login_page(page):
+                return False
+            if any(k in page.url.lower() for k in _CAPTCHA_URL_KEYWORDS):
+                print(
+                    f"[提示] 被重定向到人机验证页（{page.url}），"
+                    "请在浏览器中完成验证后按回车继续。"
+                )
+                input("完成后按回车继续...")
+            else:
+                print(
+                    f"[提示] 检测到登录页（{page.url}），请登录一次；"
+                    f"登录态会保存在 {USER_DATA_PATH}，之后无需再登录。"
+                )
+                input("登录完成后按回车继续...")
+            page.get(url)
+    return False
+
+
+def collect_filter_options(
+    page: ChromiumPage,
+    url: str,
+    link_selector: str,
+    code_pattern: re.Pattern,
+    *,
+    exclude_codes: set[str] | None = None,
+    exclude_names: set[str] | None = None,
+    name_pattern: str = r"[\u4e00-\u9fa5]{2,10}",
+    click_trigger: str | None = None,
+    captcha_handler: Callable | None = None,
+) -> list[tuple[str, str]]:
+    """从页面筛选区收集 (中文名, 代码) 选项，平台通用。
+
+    打开 url 并等待 link_selector 出现（登录页由 ensure_loaded 提示处理），
+    收集 href 匹配 code_pattern 的链接：code 取第一个捕获组，中文名取链接文本。
+    exclude_codes / exclude_names 命中即跳过（如行政区代码、"不限"等导航词），
+    name_pattern 校验中文名（默认 2-10 个纯汉字）。首次收集为空且提供
+    click_trigger 时，点击筛选条中该文本元素展开下拉后重试一次。
+    captcha_handler: 可选，页面加载后 / 点击展开下拉后各调用一次，用于
+        自动处理人机验证（如极验点选）；不传则跳过，行为不变。
+    """
+    page.get(url)
+    if captcha_handler:  # 打开页面即可能触发验证码，先尝试自动通过
+        captcha_handler(page)
+    ensure_loaded(page, link_selector, url)
+
+    def collect() -> list[tuple[str, str]]:
+        found: list[tuple[str, str]] = []
+        for a in page.eles(f"css:{link_selector}"):
+            m = code_pattern.search(a.attr("href") or "")
+            if not m:
+                continue
+            code = m.group(1)
+            name = (a.text or "").strip()
+            if (not name or code in (exclude_codes or ())
+                    or name in (exclude_names or ())):
+                continue
+            if re.fullmatch(name_pattern, name) and (name, code) not in found:
+                found.append((name, code))
+        return found
+
+    options = collect()
+    if options:
+        return options
+
+    if click_trigger:
+        try:
+            trigger = page.ele(
+                f"xpath://*[contains(@class,'filter')]//*[text()='{click_trigger}']", timeout=3
+            )
+            if trigger:
+                trigger.click()
+                page.wait(1.5)
+                if captcha_handler:  # 点击展开下拉也可能触发验证码
+                    captcha_handler(page)
+                options = collect()
+        except Exception:
+            pass
+    return options
+
+
+class FilterOptionDiscoverer:
+    """从页面筛选区发现子区域/商圈选项的爬取器，平台通用。
+
+    与 Spider 同款生命周期管理：实例化时传入平台相关的 URL、选择器与正则，
+    run() 内部创建浏览器 -> 打开页面 -> 收集 (中文名, 代码) -> 关闭浏览器，
+    调用方无需关心浏览器细节。
+
+    :param url: 子区域列表页（如行政区首页）
+    :param link_selector: 筛选区子区域链接的 CSS 选择器
+    :param code_pattern: 从 href 提取代码的正则，取第一个捕获组；默认复用
+        DEFAULT_BUSINESS_HREF_RE
+    :param exclude_codes: 需跳过的代码集合（如行政区代码）
+    :param exclude_names: 需跳过的名称集合，默认复用 DEFAULT_FILTER_EXCLUDE_NAMES
+    :param click_trigger: 首次收集为空时点击展开下拉的筛选条文本
+    :param captcha_handler: 可选，页面加载后 / 点击展开下拉后自动处理人机验证
+    """
+
+    def __init__(
+        self,
+        url: str,
+        link_selector: str,
+        code_pattern: re.Pattern = DEFAULT_BUSINESS_HREF_RE,
+        *,
+        exclude_codes: set[str] | None = None,
+        exclude_names: set[str] | None = DEFAULT_FILTER_EXCLUDE_NAMES,
+        click_trigger: str | None = None,
+        captcha_handler: Callable | None = None,
+    ) -> None:
+        self.url = url
+        self.link_selector = link_selector
+        self.code_pattern = code_pattern
+        self.exclude_codes = exclude_codes
+        self.exclude_names = exclude_names
+        self.click_trigger = click_trigger
+        self.captcha_handler = captcha_handler
+
+    def run(self) -> list[tuple[str, str]]:
+        """创建浏览器、打开页面收集选项，返回 [(中文名, 代码), ...]。"""
+        page = create_page()
+        try:
+            return collect_filter_options(
+                page, self.url, self.link_selector, self.code_pattern,
+                exclude_codes=self.exclude_codes,
+                exclude_names=self.exclude_names,
+                click_trigger=self.click_trigger,
+                captcha_handler=self.captcha_handler,
+            )
+        finally:
+            page.quit()
+
+
 class Spider:
     """一个平台的分页列表爬取器。
 
@@ -50,6 +220,8 @@ class Spider:
     :param page_url: 分页 URL 构造函数 (base_url, 页码) -> str
     :param targets: 目标 base_url 前缀列表（如各区域）；遍历其中的每个抓 pages 页
     :param pages: 每个 target 抓取的页数
+    :param captcha_handler: 可选验证码处理函数，输入 ChromiumPage，每页加载后调用；
+        用于在等待列表项前自动处理人机验证（如极验点选）
     """
 
     def __init__(
@@ -59,6 +231,7 @@ class Spider:
         page_url,
         targets: list[str],
         pages: int,
+        captcha_handler: Callable | None = None,
     ) -> None:
         # 显式 css: 前缀更稳妥：DrissionPage 4.1.x 下不带前缀的类选择器
         # 在部分站点（如 58 同城）会匹配不到列表项
@@ -69,6 +242,7 @@ class Spider:
         self.page_url = page_url
         self.targets = targets
         self.pages = pages
+        self.captcha_handler = captcha_handler
 
     def run(self, page: ChromiumPage | None = None) -> list[dict]:
         """执行抓取，返回跨 target 去重后的解析结果列表。"""
@@ -82,25 +256,12 @@ class Spider:
                 for i in range(1, self.pages + 1):
                     url = self.page_url(target, i)
                     page.get(url)
+                    if self.captcha_handler:  # 加载后先处理人机验证，再滚动等待列表项
+                        self.captcha_handler(page)
                     page.scroll.to_bottom()
 
                     # 等待列表项出现；若被风控重定向到登录页，提示手动登录
-                    try:
-                        first = page.ele(self.item_selector, timeout=15)
-                    except ElementNotFoundError:
-                        first = None
-                    if not first and "login" in page.url:
-                        print(
-                            f"[提示] 检测到登录页（{page.url}），请登录一次；"
-                            f"登录态会保存在 {USER_DATA_PATH}，之后无需再登录。"
-                        )
-                        input("登录完成后按回车继续...")
-                        page.get(url)
-                        try:
-                            first = page.ele(self.item_selector, timeout=15)
-                        except ElementNotFoundError:
-                            first = None
-                    if not first:
+                    if not ensure_loaded(page, self.item_selector, url):
                         print(f"[警告] 第 {i} 页未解析到房源，可能被风控，跳过。URL: {url}")
                         continue
 
@@ -124,3 +285,20 @@ def save(results: list[dict], output: Path) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     with open(output, "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
+
+
+def build_output_name(
+    platform: str, city: str, districts: list[str] | None,
+    business: list[str] | None = None,
+) -> str:
+    """按「平台代码+行政区/商圈代码」拼接输出文件名，多个以下划线连接；全城用城市代码。
+
+    例: build_output_name("beike", "nj", None, ["ninghailu"])  -> "beike_ninghailu.json"
+        build_output_name("beike", "nj", ["gulou", "jianye"]) -> "beike_gulou_jianye.json"
+        build_output_name("wuba", "nj", None)                 -> "wuba_nj.json"
+    """
+    region_parts = list(districts or [])
+    region_parts.extend(business or [])
+    region = "_".join(region_parts) if region_parts else city
+    return f"{platform}_{region}.json"
+

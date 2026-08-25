@@ -50,3 +50,26 @@ async def create_tables() -> None:
 
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    await migrate_schema()
+
+
+async def migrate_schema() -> None:
+    """幂等迁移：为已存在的表补充新增列（create_all 不会改已有表）。
+
+    当前迁移：house_listings 新增商圈列 business_district。
+    """
+    async with async_engine.begin() as conn:
+        cols = {
+            row[0]
+            for row in (
+                await conn.execute(text(
+                    "SELECT COLUMN_NAME FROM information_schema.COLUMNS "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'house_listings'"
+                ))
+            ).all()
+        }
+        if cols and "business_district" not in cols:
+            await conn.execute(text(
+                "ALTER TABLE house_listings "
+                "ADD COLUMN business_district VARCHAR(50) NULL COMMENT '商圈（如天润城）' AFTER area"
+            ))

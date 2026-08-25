@@ -23,6 +23,13 @@
   }
   .tab:hover { border-color: #93c5fd; }
   .tab.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+  .biz-filter { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+  .biz-filter-label { font-size: 13px; color: #6b7280; }
+  .biz-select {
+    padding: 5px 12px; border: 1px solid #e2e5ea; border-radius: 8px; background: #fff;
+    font-size: 13px; color: #374151; cursor: pointer; outline: none; max-width: 240px;
+  }
+  .biz-select:focus { border-color: #2563eb; }
   .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
   .card { background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
   .card .label { color: #6b7280; font-size: 13px; }
@@ -36,10 +43,6 @@
   .bar-track { flex: 1; background: #eef0f4; border-radius: 999px; height: 18px; overflow: hidden; }
   .bar-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #60a5fa, #2563eb); }
   .bar-value { width: 66px; color: #374151; font-variant-numeric: tabular-nums; flex-shrink: 0; }
-  .top-row { display: flex; align-items: center; gap: 10px; margin: 7px 0; font-size: 13px; }
-  .rank { width: 22px; height: 22px; border-radius: 6px; background: #eef2ff; color: #4f46e5;
-          display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; }
-  .com { width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 0; }
   .table-wrap { margin-top: 16px; }
   .table-wrap h3 { margin-bottom: 0; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
@@ -57,6 +60,17 @@
   }
   .pager button:hover:not(:disabled) { border-color: #93c5fd; color: #2563eb; }
   .pager button:disabled { opacity: .5; cursor: not-allowed; }
+  .price-panel { background: #fff; border-radius: 12px; padding: 16px 18px; margin-top: 16px;
+                 box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  .price-panel h2 { font-size: 16px; margin: 0 0 4px; }
+  .price-panel .sub { margin: 0 0 8px; }
+  .trend-table td, .trend-table th { white-space: nowrap; }
+  .delta-up { color: #dc2626; }
+  .delta-down { color: #16a34a; }
+  .delta-none { color: #9ca3af; }
+  #rent-chart { margin-top: 8px; }
+  .chart-axis-label { font-size: 11px; fill: #9ca3af; }
+  .chart-note { font-size: 12px; color: #6b7280; margin-top: 6px; }
   @media (max-width: 760px) {
     .cards { grid-template-columns: repeat(2, 1fr); }
     .grid { grid-template-columns: 1fr; }
@@ -79,47 +93,25 @@
   <main>
     {% for rep in [overall] + districts %}
     <section class="report-panel" data-district="{{ rep.district }}"{% if rep.district != '全部' %} hidden{% endif %}>
-      <div class="cards">
-        <div class="card"><div class="label">房源数量</div><div class="value">{{ rep.count }}<span class="unit">套</span></div></div>
-        <div class="card"><div class="label">平均月租金</div>
-          <div class="value">{% if rep.avg_rent is not none %}{{ rep.avg_rent }}{% else %}-{% endif %}<span class="unit">元</span></div></div>
-        <div class="card"><div class="label">中位月租金</div>
-          <div class="value">{% if rep.median_rent is not none %}{{ rep.median_rent }}{% else %}-{% endif %}<span class="unit">元</span></div></div>
-        <div class="card"><div class="label">平均面积</div>
-          <div class="value">{% if rep.avg_area is not none %}{{ rep.avg_area }}{% else %}-{% endif %}<span class="unit">㎡</span></div></div>
+      <div class="biz-filter">
+        <span class="biz-filter-label">商圈</span>
+        <select class="biz-select" title="按商圈筛选">
+          <option value="__all__">全部商圈</option>
+        </select>
+        <span class="biz-filter-label">户型</span>
+        <select class="layout-select" title="按户型筛选">
+          <option value="__all__">全部户型</option>
+        </select>
+        <span class="biz-filter-label">租赁方式</span>
+        <select class="rental-select" title="按租赁方式筛选">
+          <option value="__all__">全部方式</option>
+        </select>
       </div>
+      <div class="cards" data-role="cards"></div>
 
-      <div class="grid">
-        <div class="panel">
-          <h3>租金区间分布</h3>
-          {% set maxb = namespace(v=0) %}
-          {% for b in rep.rent_buckets %}{% if b.count > maxb.v %}{% set maxb.v = b.count %}{% endif %}{% endfor %}
-          {% for b in rep.rent_buckets %}
-          <div class="bar-row">
-            <span class="bar-label">{{ b.label }}</span>
-            <div class="bar-track">
-              <div class="bar-fill" style="width:{{ ((b.count / maxb.v * 100)|round(1)) if maxb.v else 0 }}%"></div>
-            </div>
-            <span class="bar-value">{{ b.count }} 套</span>
-          </div>
-          {% endfor %}
-        </div>
-
-        <div class="panel">
-          <h3>热门小区 TOP{{ rep.top_communities|length }}</h3>
-          {% set maxc = namespace(v=0) %}
-          {% for c in rep.top_communities %}{% if c.count > maxc.v %}{% set maxc.v = c.count %}{% endif %}{% endfor %}
-          {% for c in rep.top_communities %}
-          <div class="top-row">
-            <span class="rank">{{ loop.index }}</span>
-            <span class="com" title="{{ c.community_name }}">{{ c.community_name }}</span>
-            <div class="bar-track">
-              <div class="bar-fill" style="width:{{ ((c.count / maxc.v * 100)|round(1)) if maxc.v else 0 }}%"></div>
-            </div>
-            <span class="bar-value">{{ c.count }}套 · {% if c.avg_rent is not none %}{{ c.avg_rent }}元{% else %}-{% endif %}</span>
-          </div>
-          {% endfor %}
-        </div>
+      <div class="panel" style="margin-top: 16px;">
+        <h3>租金区间分布</h3>
+        <div data-role="buckets"></div>
       </div>
 
       <div class="table-wrap">
@@ -128,6 +120,7 @@
           <thead>
             <tr>
               <th>小区</th>
+              <th>商圈</th>
               <th>户型</th>
               <th class="num sortable" data-sort="area">面积 ㎡</th>
               <th class="num sortable" data-sort="rent">月租金</th>
@@ -141,14 +134,77 @@
     </section>
     {% endfor %}
   </main>
+
+  <section class="price-panel">
+    <h2>区域价格趋势</h2>
+    {% if price_report.has_data %}
+    <p class="sub">对比批次：{{ price_report.last_at }} → {{ price_report.current_at }}</p>
+    {% else %}
+    <p class="sub">快照数据不足：至少需要两次抓取记录才能对比（每次运行 save 入库后自动生成区域快照）</p>
+    {% endif %}
+    <div class="grid">
+      <div class="panel">
+        <h3>各区环比（按均价变化率排序）</h3>
+        <div class="table-wrap">
+          <table class="trend-table">
+            <thead>
+              <tr>
+                <th>行政区</th>
+                <th class="num">上次均价</th>
+                <th class="num">本次均价</th>
+                <th class="num">均价变化</th>
+                <th class="num">上次在租</th>
+                <th class="num">本次在租</th>
+                <th class="num">数量变化</th>
+              </tr>
+            </thead>
+            <tbody id="trend-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>全城平均租金走势</h3>
+        <svg id="rent-chart" viewBox="0 0 1000 260" width="100%" height="260"></svg>
+        <p class="chart-note">折线为全城平均租金（元），括号内数字为该批抓取总条数。</p>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>商圈环比（按均价变化率排序）</h3>
+      <div class="biz-filter">
+        <label>行政区筛选：</label>
+        <select id="biz-district-filter">
+          <option value="__all__">全部</option>
+        </select>
+      </div>
+      <div class="table-wrap">
+        <table class="trend-table">
+          <thead>
+            <tr>
+              <th>行政区</th>
+              <th>商圈</th>
+              <th class="num">上次均价</th>
+              <th class="num">本次均价</th>
+              <th class="num">均价变化</th>
+              <th class="num">上次在租</th>
+              <th class="num">本次在租</th>
+              <th class="num">数量变化</th>
+            </tr>
+          </thead>
+          <tbody id="business-trend-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
 </div>
 
 <script id="report-data" type="application/json">{{ data_json|safe }}</script>
 <script>
   const DATA = JSON.parse(document.getElementById('report-data').textContent);
+  const BUCKET_BOUNDS = [1000, 2000, 3000, 4000, 5000, 7000, 10000];
+  const BUCKET_LABELS = ['1k以下', '1-2k', '2-3k', '3-4k', '4-5k', '5-7k', '7-10k', '1w+'];
 
   document.addEventListener('DOMContentLoaded', () => {
-    // 行政区 Tab 切换：显示对应面板，并填充其明细表
+    // 行政区 Tab 切换：显示对应面板，并渲染其内容
     document.querySelectorAll('.tab').forEach(tab => {
       tab.addEventListener('click', () => {
         document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -157,29 +213,141 @@
         document.querySelectorAll('.report-panel').forEach(p => {
           const show = p.dataset.district === name;
           p.hidden = !show;
-          if (show) fillTable(p);
+          if (show) fillPanel(p);
         });
       });
     });
 
-    fillTable(document.querySelector('.report-panel:not([hidden])'));
+    // 每个面板：填充商圈/户型选项 + 渲染初始（全部）内容
+    document.querySelectorAll('.report-panel').forEach(panel => {
+      const district = panel.dataset.district;
+      const bizCounts = {};
+      const layoutCounts = {};
+      const rentalCounts = {};
+      DATA.listings.forEach(l => {
+        if (district !== '全部') {
+          const d = district === '独栋' ? (l.district == null ? '独栋' : l.district) : l.district;
+          if (d !== district) return;
+        }
+        if (l.business_district) bizCounts[l.business_district] = (bizCounts[l.business_district] || 0) + 1;
+        if (l.layout) layoutCounts[l.layout] = (layoutCounts[l.layout] || 0) + 1;
+        if (l.listing_type) rentalCounts[l.listing_type] = (rentalCounts[l.listing_type] || 0) + 1;
+      });
+      const select = panel.querySelector('.biz-select');
+      Object.entries(bizCounts)
+        .sort((a, b) => b[1] - a[1])
+        .forEach(([name]) => {
+          const opt = document.createElement('option');
+          opt.value = name;
+          opt.textContent = name;
+          select.appendChild(opt);
+        });
+      select.addEventListener('change', () => fillPanel(panel));
+      const layoutSelect = panel.querySelector('.layout-select');
+      Object.entries(layoutCounts)
+        .sort((a, b) => b[1] - a[1])
+        .forEach(([name]) => {
+          const opt = document.createElement('option');
+          opt.value = name;
+          opt.textContent = name;
+          layoutSelect.appendChild(opt);
+        });
+      layoutSelect.addEventListener('change', () => fillPanel(panel));
+      const rentalSelect = panel.querySelector('.rental-select');
+      Object.entries(rentalCounts)
+        .sort((a, b) => b[1] - a[1])
+        .forEach(([name]) => {
+          const opt = document.createElement('option');
+          opt.value = name;
+          opt.textContent = name;
+          rentalSelect.appendChild(opt);
+        });
+      rentalSelect.addEventListener('change', () => fillPanel(panel));
+      fillPanel(panel);
+    });
+
+    renderTrend();
+    renderBusinessTrend();
+    renderChart();
   });
 
-  function fillTable(panel) {
+  function fmt(v) { return v == null ? '-' : v; }
+
+  function filteredItems(panel) {
     const district = panel.dataset.district;
+    const biz = panel.querySelector('.biz-select').value;
+    const layout = panel.querySelector('.layout-select').value;
+    const rental = panel.querySelector('.rental-select').value;
+    return DATA.listings.filter(l => {
+      if (district !== '全部') {
+        const d = district === '独栋' ? (l.district == null ? '独栋' : l.district) : l.district;
+        if (d !== district) return false;
+      }
+      if (biz !== '__all__' && l.business_district !== biz) return false;
+      if (layout !== '__all__' && l.layout !== layout) return false;
+      if (rental !== '__all__' && l.listing_type !== rental) return false;
+      return true;
+    });
+  }
+
+  function computeStats(items) {
+    const count = items.length;
+    const rents = items.map(i => i.monthly_rent).filter(v => v != null);
+    const areas = items.map(i => i.area).filter(v => v != null);
+    const sum = arr => arr.reduce((a, b) => a + b, 0);
+    const avg = arr => arr.length ? Math.round(sum(arr) / arr.length) : null;
+    const avgArea = arr => arr.length ? Math.round(sum(arr) / arr.length * 10) / 10 : null;
+    const medianRent = arr => {
+      if (!arr.length) return null;
+      const s = [...arr].sort((a, b) => a - b);
+      const mid = Math.floor(s.length / 2);
+      return s.length % 2 ? Math.round(s[mid]) : Math.round((s[mid - 1] + s[mid]) / 2);
+    };
+    const labelOf = rent => {
+      for (let i = 0; i < BUCKET_BOUNDS.length; i++) if (rent < BUCKET_BOUNDS[i]) return BUCKET_LABELS[i];
+      return BUCKET_LABELS[BUCKET_LABELS.length - 1];
+    };
+    const bucketCounts = {};
+    rents.forEach(r => { const l = labelOf(r); bucketCounts[l] = (bucketCounts[l] || 0) + 1; });
+    const rent_buckets = BUCKET_LABELS.map(label => ({ label, count: bucketCounts[label] || 0 }));
+
+    return {
+      count,
+      avg_rent: avg(rents),
+      median_rent: medianRent(rents),
+      avg_area: avgArea(areas),
+      rent_buckets,
+    };
+  }
+
+  function fillPanel(panel) {
+    const s = computeStats(filteredItems(panel));
+
+    panel.querySelector('[data-role="cards"]').innerHTML =
+      `<div class="card"><div class="label">房源数量</div><div class="value">${s.count}<span class="unit">套</span></div></div>` +
+      `<div class="card"><div class="label">平均月租金</div><div class="value">${fmt(s.avg_rent)}<span class="unit">元</span></div></div>` +
+      `<div class="card"><div class="label">中位月租金</div><div class="value">${fmt(s.median_rent)}<span class="unit">元</span></div></div>` +
+      `<div class="card"><div class="label">平均面积</div><div class="value">${fmt(s.avg_area)}<span class="unit">㎡</span></div></div>`;
+
+    const maxb = Math.max(...s.rent_buckets.map(b => b.count));
+    panel.querySelector('[data-role="buckets"]').innerHTML = s.rent_buckets.map(b =>
+      `<div class="bar-row">` +
+        `<span class="bar-label">${b.label}</span>` +
+        `<div class="bar-track"><div class="bar-fill" style="width:${maxb ? (b.count / maxb * 100).toFixed(1) : 0}%"></div></div>` +
+        `<span class="bar-value">${b.count} 套</span>` +
+      `</div>`
+    ).join('');
+
     const tbody = panel.querySelector('tbody');
-    const items = DATA.listings.filter(l =>
-      district === '全部' ? true
-        : (district === '独栋' ? l.district == null : l.district === district)
-    );
     tbody.innerHTML = '';
     const frag = document.createDocumentFragment();
-    items.forEach(it => {
+    filteredItems(panel).forEach(it => {
       const tr = document.createElement('tr');
       tr.dataset.rent = it.monthly_rent == null ? '' : it.monthly_rent;
       tr.dataset.area = it.area == null ? '' : it.area;
       tr.innerHTML =
         `<td>${it.community_name}</td>` +
+        `<td>${it.business_district || '-'}</td>` +
         `<td>${it.layout || '-'}</td>` +
         `<td class="num">${it.area == null ? '-' : it.area}</td>` +
         `<td class="num">${it.monthly_rent == null ? '-' : it.monthly_rent}</td>` +
@@ -189,6 +357,114 @@
     });
     tbody.appendChild(frag);
     initTable(panel.querySelector('table.listing'));
+  }
+
+  function deltaHtml(v, suffix) {
+    if (v == null || isNaN(v)) return '<span class="delta-none">-</span>';
+    const cls = v > 0 ? 'delta-up' : v < 0 ? 'delta-down' : 'delta-none';
+    const sign = v > 0 ? '+' : '';
+    return `<span class="${cls}">${sign}${v}${suffix || ''}</span>`;
+  }
+
+  function fillTrendTable(tbody, trends, nameKey, colspan = 7) {
+    tbody.innerHTML = '';
+    if (!trends || !trends.length) {
+      tbody.innerHTML = `<tr><td colspan="${colspan}" style="text-align:center;color:#9ca3af">暂无对比数据</td></tr>`;
+      return;
+    }
+    const hasDistrictCol = nameKey !== 'district' && 'district' in trends[0];
+    const frag = document.createDocumentFragment();
+    trends.forEach(t => {
+      const tr = document.createElement('tr');
+      let rentCell = '<td class="num">-</td>';
+      if (t.rent_delta != null) {
+        const pctCls = t.rent_delta > 0 ? 'delta-up' : t.rent_delta < 0 ? 'delta-down' : 'delta-none';
+        const pctText = t.rent_delta_pct == null ? '' :
+          ` <span class="${pctCls}" style="font-size:11px">(${t.rent_delta_pct > 0 ? '+' : ''}${t.rent_delta_pct}%)</span>`;
+        rentCell = `<td class="num">${deltaHtml(t.rent_delta, '元')}${pctText}</td>`;
+      }
+      tr.innerHTML =
+        (hasDistrictCol ? `<td>${t.district || '-'}</td>` : '') +
+        `<td>${t[nameKey]}</td>` +
+        `<td class="num">${t.last_avg_rent == null ? '-' : t.last_avg_rent}</td>` +
+        `<td class="num">${t.current_avg_rent == null ? '-' : t.current_avg_rent}</td>` +
+        rentCell +
+        `<td class="num">${t.last_count}</td>` +
+        `<td class="num">${t.current_count}</td>` +
+        `<td class="num">${deltaHtml(t.count_delta, '')}</td>`;
+      frag.appendChild(tr);
+    });
+    tbody.appendChild(frag);
+  }
+
+  function renderTrend() {
+    const tbody = document.getElementById('trend-body');
+    const p = DATA.price;
+    if (!p || !p.has_data || !p.trends.length) {
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#9ca3af">暂无对比数据</td></tr>';
+      return;
+    }
+    fillTrendTable(tbody, p.trends, 'district');
+  }
+
+  function renderBusinessTrend() {
+    const tbody = document.getElementById('business-trend-body');
+    const p = DATA.price;
+    if (!p || !p.business_trends || !p.business_trends.length) {
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#9ca3af">暂无对比数据（至少需两次抓取入库）</td></tr>';
+      return;
+    }
+    const filter = document.getElementById('biz-district-filter');
+    if (!filter.dataset.bound) {
+      filter.dataset.bound = '1';
+      // 行政区选项按区环固定顺序，仅保留有商圈趋势的区
+      const order = p.trends.filter(t => t.district !== '全部').map(t => t.district);
+      const bizDists = new Set(p.business_trends.map(t => t.district).filter(Boolean));
+      order.filter(d => bizDists.has(d)).forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d;
+        opt.textContent = d;
+        filter.appendChild(opt);
+      });
+      filter.addEventListener('change', renderBusinessTrend);
+    }
+    const dist = filter.value;
+    const list = p.business_trends.filter(t => dist === '__all__' || t.district === dist);
+    fillTrendTable(tbody, list, 'business_district', 8);
+  }
+
+  function renderChart() {
+    const svg = document.getElementById('rent-chart');
+    const p = DATA.price;
+    if (!p || !p.has_data || p.series.length < 2) {
+      svg.innerHTML = '<text x="50%" y="50%" text-anchor="middle" fill="#9ca3af" font-size="13">数据不足</text>';
+      return;
+    }
+    const W = 1000, H = 260, pl = 46, pr = 20, pt = 16, pb = 28;
+    const n = p.series.length;
+    const vals = p.series.map(s => s.avg_rent).filter(v => v != null);
+    const min = Math.min(...vals), max = Math.max(...vals);
+    const range = (max - min) || 1;
+    const x = i => pl + i * (W - pl - pr) / (n - 1);
+    const y = v => pt + (1 - (v - min) / range) * (H - pt - pb);
+
+    let html = '';
+    for (let g = 0; g <= 4; g++) {
+      const val = min + range * g / 4;
+      const yy = y(val);
+      html += `<line x1="${pl}" y1="${yy}" x2="${W - pr}" y2="${yy}" stroke="#eef0f4"/>`;
+      html += `<text x="${pl - 8}" y="${yy + 4}" text-anchor="end" class="chart-axis-label">${Math.round(val)}</text>`;
+    }
+    const pts = p.series.map((s, i) => `${x(i)},${y(s.avg_rent)}`).join(' ');
+    html += `<polyline points="${pts}" fill="none" stroke="#2563eb" stroke-width="2" stroke-linejoin="round"/>`;
+    const step = Math.max(1, Math.ceil(n / 8));
+    p.series.forEach((s, i) => {
+      html += `<circle cx="${x(i)}" cy="${y(s.avg_rent)}" r="3" fill="#2563eb"/>`;
+      if (i % step === 0 || i === n - 1) {
+        html += `<text x="${x(i)}" y="${H - 8}" text-anchor="middle" class="chart-axis-label">${s.date}</text>`;
+      }
+    });
+    svg.innerHTML = html;
   }
 
   function initTable(table) {

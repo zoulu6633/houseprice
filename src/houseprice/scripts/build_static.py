@@ -15,7 +15,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 
 from houseprice.db_config import AsyncSession_Local, async_engine
-from houseprice.services.report_service import build_report, make_data_json
+from houseprice.services.report_service import build_price_report, build_report, make_data_json
 
 TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "templates"
 OUTPUT_FILE = Path(__file__).resolve().parents[3] / "docs" / "index.html"
@@ -24,10 +24,13 @@ OUTPUT_FILE = Path(__file__).resolve().parents[3] / "docs" / "index.html"
 async def main() -> None:
     async with AsyncSession_Local() as session:
         data = await build_report(session)
+        price = await build_price_report(session)
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), autoescape=True)
     html = env.get_template("report.html").render(
-        **data, data_json=make_data_json(data["overall"], data["districts"])
+        **data,
+        price_report=price,
+        data_json=make_data_json(data["overall"], data["districts"], price),
     )
 
     OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)

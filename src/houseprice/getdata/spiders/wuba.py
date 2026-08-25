@@ -14,7 +14,9 @@ import argparse
 import re
 from pathlib import Path
 
-from houseprice.getdata.spiders.base import DEFAULT_OUTPUT_DIR, Spider, save
+from houseprice.getdata.spiders.base import (
+    DEFAULT_OUTPUT_DIR, Spider, build_output_name, save,
+)
 
 # 列表项选择器（58 租房常见结构为 .house-cell，若解析为空请按实际页面调整）
 ITEM_SELECTOR = ".house-cell"
@@ -36,8 +38,6 @@ DISTRICT_ALIAS = {
     "gaochun": ("gaochunxian", "高淳"),
 }
 NANJING_DISTRICTS = list(DISTRICT_ALIAS)
-
-DEFAULT_OUTPUT = DEFAULT_OUTPUT_DIR / "nanjing_wuba.json"
 
 
 def page_url(base: str, i: int) -> str:
@@ -77,7 +77,6 @@ def parse_item(item, target: str | None = None) -> dict | None:
         "floor_level": search(r"(低|中|高)\s*楼层"),  # 楼层等级
         "total_floors": int(search(r"共?\s*(\d+)\s*层")) if search(r"共?\s*(\d+)\s*层") else None,  # 总楼层
         "decoration": search(r"(精装|简装|毛坯|豪装)"),  # 装修
-        "building_age": None,
         "source_platform": SOURCE_PLATFORM,
         "source_url": source_url,  # 房源链接（唯一，用于去重）
     }
@@ -115,7 +114,8 @@ def main() -> None:
                         help="区域代码（如 gulou/jianye），不填则抓全城")
     parser.add_argument("--all-districts", action="store_true",
                         help="遍历南京全部区域抓取")
-    parser.add_argument("--output", default=str(DEFAULT_OUTPUT), help="输出 JSON 路径")
+    parser.add_argument("--output", default=None,
+                        help="输出 JSON 路径（默认按 平台代码+行政区代码 自动命名）")
     args = parser.parse_args()
 
     if args.all_districts:
@@ -125,9 +125,11 @@ def main() -> None:
     else:
         districts = None
 
+    output = (Path(args.output) if args.output
+              else DEFAULT_OUTPUT_DIR / build_output_name("wuba", args.city, districts))
     results = crawl(args.pages, args.city, districts)
-    save(results, Path(args.output))
-    print(f"抓取完成：共 {len(results)} 条，已保存到 {args.output}")
+    save(results, output)
+    print(f"抓取完成：共 {len(results)} 条，已保存到 {output}")
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from houseprice.db_config import get_db
-from houseprice.services.report_service import build_report, make_data_json
+from houseprice.services.report_service import build_price_report, build_report, make_data_json
 
 router = APIRouter(prefix="/report", tags=["report"])
 
@@ -20,8 +20,14 @@ async def report_page(
 ) -> "TemplateResponse":
     """渲染按行政区整理的报告仪表盘。"""
     data = await build_report(db)
+    price = await build_price_report(db)
     return templates.TemplateResponse(
         request,
         "report.html",
-        {"request": request, **data, "data_json": make_data_json(data["overall"], data["districts"])},
+        {
+            "request": request,
+            **data,
+            "price_report": price,
+            "data_json": make_data_json(data["overall"], data["districts"], price),
+        },
     )
