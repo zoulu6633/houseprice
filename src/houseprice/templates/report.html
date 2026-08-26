@@ -25,11 +25,11 @@
   .tab.active { background: #2563eb; color: #fff; border-color: #2563eb; }
   .biz-filter { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
   .biz-filter-label { font-size: 13px; color: #6b7280; }
-  .biz-select {
+  .biz-select, .layout-select, .rental-select {
     padding: 5px 12px; border: 1px solid #e2e5ea; border-radius: 8px; background: #fff;
     font-size: 13px; color: #374151; cursor: pointer; outline: none; max-width: 240px;
   }
-  .biz-select:focus { border-color: #2563eb; }
+  .biz-select:focus, .layout-select:focus, .rental-select:focus { border-color: #2563eb; }
   .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
   .card { background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
   .card .label { color: #6b7280; font-size: 13px; }
@@ -244,8 +244,23 @@
         });
       select.addEventListener('change', () => fillPanel(panel));
       const layoutSelect = panel.querySelector('.layout-select');
+      // 户型选项固定顺序：按 室→厅→卫 数值升序；无法解析的格式排最后（按数量降序）
+      const layoutSort = (a, b) => {
+        const ka = /(\d+)室(\d+)厅(\d+)卫/.exec(a[0]);
+        const kb = /(\d+)室(\d+)厅(\d+)卫/.exec(b[0]);
+        if (ka && kb) {
+          for (let i = 1; i <= 3; i++) {
+            const d = ka[i] - kb[i];
+            if (d) return d;
+          }
+          return 0;
+        }
+        if (ka) return -1;
+        if (kb) return 1;
+        return b[1] - a[1];
+      };
       Object.entries(layoutCounts)
-        .sort((a, b) => b[1] - a[1])
+        .sort(layoutSort)
         .forEach(([name]) => {
           const opt = document.createElement('option');
           opt.value = name;

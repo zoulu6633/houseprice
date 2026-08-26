@@ -19,6 +19,11 @@ import time
 from pathlib import Path
 from typing import Callable
 
+try:
+    import msvcrt  # Windows 非阻塞键盘检测；其他平台不可用时退化为纯超时等待
+except ImportError:  # pragma: no cover - 非 Windows 平台
+    msvcrt = None
+
 from DrissionPage import ChromiumOptions, ChromiumPage
 from DrissionPage.errors import ElementNotFoundError
 
@@ -56,6 +61,28 @@ _LOGIN_URL_KEYWORDS = ("login", "passport", "verify", "captcha", "antibot", "sig
 # 人机验证页 URL 特征关键词（命中时按验证页提示，而非登录页）
 _CAPTCHA_URL_KEYWORDS = ("captcha", "verify", "antibot")
 
+# 无人值守模式下，遇到登录/验证码页等待人工处理的最长时间（秒），超时自动跳过
+MANUAL_WAIT_TIMEOUT = 60
+
+
+def _wait_manual(prompt: str, timeout: int = MANUAL_WAIT_TIMEOUT) -> bool:
+    """等待人工处理登录/验证码：按回车立即继续，超时自动跳过（无人值守不卡死）。
+
+    返回 True 表示收到回车；False 表示超时（打印提示后继续，不阻塞任务）。
+    非 Windows 平台无 msvcrt 时退化为纯超时等待。
+    """
+    print(prompt)
+    if msvcrt is None:
+        time.sleep(timeout)
+        return False
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if msvcrt.kbhit() and msvcrt.getch() in (b"\r", b"\n"):
+            return True
+        time.sleep(0.2)
+    print(f"[超时] 等待 {timeout} 秒无人处理，跳过本次人工介入，任务继续。")
+    return False
+
 
 def _is_login_page(page: ChromiumPage) -> bool:
     """判断页面是否为登录页：URL 含登录特征关键词，或页面出现密码输入框兜底。"""
@@ -84,17 +111,16 @@ def ensure_loaded(page: ChromiumPage, selector: str, url: str) -> bool:
             if not _is_login_page(page):
                 return False
             if any(k in page.url.lower() for k in _CAPTCHA_URL_KEYWORDS):
-                print(
-                    f"[提示] 被重定向到人机验证页（{page.url}），"
-                    "请在浏览器中完成验证后按回车继续。"
+                _wait_manual(
+                    f"[提示] 被重定向到人机验证页（{page.url}），\n"
+                    "请在弹出的浏览器中完成验证，或等待超时自动跳过。"
                 )
-                input("完成后按回车继续...")
             else:
-                print(
-                    f"[提示] 检测到登录页（{page.url}），请登录一次；"
-                    f"登录态会保存在 {USER_DATA_PATH}，之后无需再登录。"
+                _wait_manual(
+                    f"[提示] 检测到登录页（{page.url}），请登录一次；\n"
+                    f"登录态会保存在 {USER_DATA_PATH}，之后无需再登录。\n"
+                    "登录完成后按回车继续，或等待超时自动跳过。"
                 )
-                input("登录完成后按回车继续...")
             page.get(url)
     return False
 

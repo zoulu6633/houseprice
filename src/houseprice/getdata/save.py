@@ -14,7 +14,7 @@ import argparse
 import asyncio
 import json
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, time
 from pathlib import Path
 
 from sqlalchemy import select
@@ -61,29 +61,46 @@ async def save_to_db(data: list[dict]) -> tuple[int, int, bool]:
         return updated, new_count, snapshot_written
 
 
+async def save_output_files(files: list[Path]) -> tuple[int, int, bool]:
+    """合并多个 JSON（按 source_url 去重）后入库，返回 (更新条数, 新增条数, 是否写入快照)。
+
+    供命令行 main() 与定时编排脚本 run_pipeline 共用，避免合并逻辑重复。
+    """
+    merged: list[dict] = []
+    seen: set[str] = set()
+    for file in files:
+        with open(file, "r", encoding="utf-8") as f:
+            for row in json.load(f):
+                if row["source_url"] not in seen:
+                    seen.add(row["source_url"])
+                    merged.append(row)
+
+    if not merged:
+        return 0, 0, False
+    return await save_to_db(merged)
+
+
 async def save_snapshots(session: AsyncSession, data: list[dict]) -> bool:
     """对本次抓取数据按行政区和商圈聚合，写一批区域快照。
 
-    （"每天仅记录一次"的门槛已在本地临时关闭：每次 save 都会落快照，
-    便于尽快积累两批快照用于趋势对比。）
-    
-
+    （每天仅记录一次快照：同一天多次 save 只落第一批，
+    保证环比对比的是不同日期/批次的真实数据。）
     统计口径与报告页 services.report_service.aggregate 完全一致，
     便于不同批次间直接对比平均租金与在租数量。
     """
     from houseprice.model.business_district_snapshot import BusinessDistrictSnapshot
     from houseprice.model.district_snapshot import DistrictSnapshot
     from houseprice.services.report_service import aggregate
-    
-    # # 每天限定一次写入快照
-    # today_start = datetime.combine(datetime.now().date(), time.min)
-    # already = await session.scalar(
-    #     select(DistrictSnapshot.id)
-    #     .where(DistrictSnapshot.recorded_at >= today_start)
-    #     .limit(1)
-    # )
-    # if already is not None:
-    #     return False
+
+    # 每天限定一次写入快照
+    today_start = datetime.combine(datetime.now().date(), time.min)
+    already = await session.scalar(
+        select(DistrictSnapshot.id)
+        .where(DistrictSnapshot.recorded_at >= today_start)
+        .limit(1)
+    )
+    if already is not None:
+        return False
 
     platform = data[0].get("source_platform", "贝壳租房")
     batch_count = len(data)
@@ -154,25 +171,9 @@ async def main() -> None:
         await async_engine.dispose()
         return
 
-    # 合并所有文件为一批，保证行政区/商圈快照综合多文件数据、只落一批
-    merged: list[dict] = []
-    seen: set[str] = set()
-    for file in files:
-        with open(file, "r", encoding="utf-8") as f:
-            for row in json.load(f):
-                if row["source_url"] not in seen:
-                    seen.add(row["source_url"])
-                    merged.append(row)
-
-    if not merged:
-        print("未读取到任何房源数据，退出")
-        await async_engine.dispose()
-        return
-
-    updated, added, snapshot_written = await save_to_db(merged)
+    updated, added, snapshot_written = await save_output_files(files)
     snapshot_msg = "已记录区域快照" if snapshot_written else "今日已有区域快照，跳过"
-    print(f"完成：合并 {len(files)} 个文件共 {len(merged)} 条，"
-          f"更新 {updated} 条，新增 {added} 条；{snapshot_msg}")
+    print(f"完成：合并 {len(files)} 个文件，更新 {updated} 条，新增 {added} 条；{snapshot_msg}")
     await async_engine.dispose()  # 关闭连接池，避免退出时的告警
 
 

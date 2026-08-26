@@ -8,6 +8,7 @@
     python -m houseprice.getdata.spiders.beike --business ninghailu     # 单个商圈（无需行政区前缀）
     python -m houseprice.getdata.spiders.beike --business huaqiaolu hunanlu hanzhongmendaji  # 多个商圈（空格分隔）
     python -m houseprice.getdata.spiders.beike --district gulou --auto-business  # 自动解析商圈并逐商圈抓取（每个商圈一个 JSON）
+    python -m houseprice.getdata.spiders.beike --all-districts --auto-business --pages 3  # 遍历全部区域并逐商圈抓取（定时任务全量模式）
 """
 
 from __future__ import annotations
@@ -172,6 +173,19 @@ def crawl_district_businesses(
     print(f"发现 {district} 商圈 {len(businesses)} 个：{', '.join(n for n, _ in businesses)}")
     return crawl_split(pages, city, business=[code for _, code in businesses],
                        output_dir=output_dir)
+
+
+def crawl_all_district_businesses(pages: int, city: str, *, output_dir: Path) -> int:
+    """遍历南京全部行政区，逐区自动解析商圈并逐商圈抓取，返回总条数。
+
+    等价于对 NANJING_DISTRICTS 逐个执行 --district d --auto-business，
+    供定时编排脚本全量抓取使用；每个商圈保存一个 JSON。
+    """
+    total = 0
+    for district in NANJING_DISTRICTS:
+        print(f"—— [{district}] 解析商圈并抓取 ——")
+        total += crawl_district_businesses(pages, city, district, output_dir=output_dir)
+    return total
 
 
 def fetch_listings(
@@ -339,14 +353,21 @@ def main() -> None:
 
     if args.business and (args.district or args.all_districts):
         parser.error("--business 与 --district / --all-districts 不能同时使用")
-    if args.auto_business and not args.district:
-        parser.error("--auto-business 需要配合 --district 指定行政区")
     if args.auto_business and args.business:
         parser.error("--auto-business 与 --business 不能同时使用")
+    if args.auto_business and not (args.district or args.all_districts):
+        parser.error("--auto-business 需要配合 --district 或 --all-districts 指定行政区")
 
     if args.auto_business:
         output_dir = Path(args.output) if args.output else DEFAULT_OUTPUT_DIR
-        total = crawl_district_businesses(args.pages, args.city, args.district, output_dir=output_dir)
+        if args.all_districts:
+            total = crawl_all_district_businesses(
+                args.pages, args.city, output_dir=output_dir
+            )
+        else:
+            total = crawl_district_businesses(
+                args.pages, args.city, args.district, output_dir=output_dir
+            )
         print(f"抓取完成：共 {total} 条，已按商圈分开保存到 {output_dir}")
         return
 
