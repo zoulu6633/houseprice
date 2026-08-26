@@ -62,7 +62,7 @@ _LOGIN_URL_KEYWORDS = ("login", "passport", "verify", "captcha", "antibot", "sig
 _CAPTCHA_URL_KEYWORDS = ("captcha", "verify", "antibot")
 
 # 无人值守模式下，遇到登录/验证码页等待人工处理的最长时间（秒），超时自动跳过
-MANUAL_WAIT_TIMEOUT = 60
+MANUAL_WAIT_TIMEOUT = 120
 
 
 def _wait_manual(prompt: str, timeout: int = MANUAL_WAIT_TIMEOUT) -> bool:

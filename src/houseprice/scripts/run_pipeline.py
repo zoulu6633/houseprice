@@ -72,7 +72,7 @@ async def run_pipeline(pages: int, skip_crawl: bool = False) -> None:
     await build_static.main()
 
     step("步骤 4/4：推送到 GitHub Pages")
-    git_publish()
+    # git_publish()
     step("全流程完成")
 
 
