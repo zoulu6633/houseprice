@@ -36,6 +36,7 @@
   .card .value { font-size: 24px; font-weight: 700; margin-top: 4px; }
   .card .unit { font-size: 13px; color: #9ca3af; font-weight: 400; margin-left: 2px; }
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+  .grid > .panel { min-width: 0; }
   .panel { background: #fff; border-radius: 12px; padding: 16px 18px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
   .panel h3 { font-size: 15px; margin: 0 0 12px; }
   .bar-row { display: flex; align-items: center; gap: 10px; margin: 7px 0; font-size: 13px; }
@@ -78,10 +79,11 @@
     header .sub { width: 100%; }
     .tabs { margin: 14px 0 12px; }
     .tab { padding: 9px 14px; font-size: 13px; }
-    .biz-filter { gap: 8px; }
+    .biz-filter { flex-direction: column; align-items: stretch; gap: 6px; }
     .biz-select, .layout-select, .rental-select {
-      max-width: none; flex: 1 1 45%; font-size: 16px;
+      flex: none; width: 100%; max-width: none; font-size: 16px; padding: 8px 12px;
     }
+    #biz-district-filter { width: 100%; }
     .cards { grid-template-columns: repeat(2, 1fr); gap: 10px; }
     .card { padding: 12px; }
     .card .value { font-size: 21px; }
