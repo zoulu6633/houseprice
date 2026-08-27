@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import random
 import re
+import subprocess
 import time
 from pathlib import Path
 from typing import Callable
@@ -47,8 +48,36 @@ DEFAULT_FILTER_EXCLUDE_NAMES = {
 DEFAULT_BUSINESS_HREF_RE = re.compile(r"/zufang/([a-z0-9]+)/?")
 
 
+def _kill_leftover_browser() -> None:
+    """清理仍占用本爬虫用户数据目录的残留浏览器进程。
+
+    上次浏览器退出不干净时，会残留 msedge/chrome 进程继续占用调试端口（9222）
+    和用户数据目录，导致下一次 create_page() 报"浏览器连接失败，请检查9222端口"。
+    按命令行中的 user-data-dir 精确匹配，只清理本项目爬虫浏览器，不影响日常浏览器。
+    """
+    pattern = f"*{USER_DATA_PATH}*"
+    cmd = (
+        "Get-CimInstance Win32_Process | Where-Object {"
+        " $_.Name -in @('msedge.exe', 'chrome.exe', 'chromium.exe') -and"
+        f" $_.CommandLine -like '{pattern}'"
+        " } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+    )
+    try:
+        subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd],
+            capture_output=True, timeout=30,
+        )
+    except Exception:  # 清理失败不影响启动
+        pass
+
+
 def create_page() -> ChromiumPage:
-    """按公共配置启动浏览器（固定用户数据目录以保留登录态）。"""
+    """按公共配置启动浏览器（固定用户数据目录以保留登录态）。
+
+    启动前先清理上次可能残留的浏览器进程，避免其占用调试端口/用户数据目录
+    导致本次连接失败。
+    """
+    _kill_leftover_browser()
     co = ChromiumOptions()
     if BROWSER_PATH:
         co.set_browser_path(BROWSER_PATH)
@@ -61,26 +90,16 @@ _LOGIN_URL_KEYWORDS = ("login", "passport", "verify", "captcha", "antibot", "sig
 # 人机验证页 URL 特征关键词（命中时按验证页提示，而非登录页）
 _CAPTCHA_URL_KEYWORDS = ("captcha", "verify", "antibot")
 
-# 无人值守模式下，遇到登录/验证码页等待人工处理的最长时间（秒），超时自动跳过
-MANUAL_WAIT_TIMEOUT = 120
+# 项目固定全程无人值守：爬取中途遇到登录/验证码页不等待人工回车，直接跳过该页。
 
 
-def _wait_manual(prompt: str, timeout: int = MANUAL_WAIT_TIMEOUT) -> bool:
-    """等待人工处理登录/验证码：按回车立即继续，超时自动跳过（无人值守不卡死）。
+def _wait_manual(prompt: str) -> bool:
+    """遇到登录/验证码页的提示：不等待人工处理，直接跳过本次人工介入。
 
-    返回 True 表示收到回车；False 表示超时（打印提示后继续，不阻塞任务）。
-    非 Windows 平台无 msvcrt 时退化为纯超时等待。
+    返回 False，由调用方跳过该页、任务继续。
     """
     print(prompt)
-    if msvcrt is None:
-        time.sleep(timeout)
-        return False
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if msvcrt.kbhit() and msvcrt.getch() in (b"\r", b"\n"):
-            return True
-        time.sleep(0.2)
-    print(f"[超时] 等待 {timeout} 秒无人处理，跳过本次人工介入，任务继续。")
+    print("[无人值守] 不等待人工处理，跳过本次人工介入，任务继续。")
     return False
 
 
@@ -93,6 +112,47 @@ def _is_login_page(page: ChromiumPage) -> bool:
         return page.ele("css:input[type='password']", timeout=1) is not None
     except ElementNotFoundError:
         return False
+
+
+def manual_login(
+    login_url: str,
+    timeout: int | None = None,
+) -> bool:
+    """正式爬取前的人工登录步骤：直接打开登录页，等待人工完成登录。
+
+    使用固定用户数据目录启动浏览器（登录态持久化到 USER_DATA_PATH），
+    直接打开 login_url 供人工登录，支持两种结束方式：
+        1. 自动检测：登录完成后页面离开登录页（URL 不再含登录特征，
+           如带 service 参数的 SSO 地址登录成功后会跳回业务页）
+        2. 手动确认：登录完成后在控制台按回车
+    timeout 为等待最长时间（秒），传 None（默认）则一直等待直到登录完成、
+    不自动跳过；传数值则超时后返回 False，由调用方决定继续或中止。
+
+    用法：
+        login_ok = manual_login("https://clogin.ke.com/login?service=...")
+    """
+    page = create_page()
+    try:
+        page.get(login_url)
+        print(
+            f"[登录] 请在弹出的浏览器中完成登录（{login_url}）。\n"
+            f"登录态将保存在 {USER_DATA_PATH}，之后无需再登录。\n"
+            "登录完成后会自动检测到并继续；也可按回车手动确认。"
+        )
+        deadline = time.monotonic() + timeout if timeout is not None else None
+        while True:
+            if not _is_login_page(page):  # 登录成功通常自动跳回非登录页
+                print("[登录] 检测到已离开登录页，登录成功")
+                return True
+            if msvcrt is not None and msvcrt.kbhit() and msvcrt.getch() in (b"\r", b"\n"):
+                print("[登录] 已按回车确认，继续流程")
+                return True
+            if timeout is not None and time.monotonic() >= deadline:
+                print(f"[登录] 等待超时（{timeout} 秒），登录未完成")
+                return False
+            time.sleep(0.2)
+    finally:
+        page.quit()
 
 
 def ensure_loaded(page: ChromiumPage, selector: str, url: str) -> bool:

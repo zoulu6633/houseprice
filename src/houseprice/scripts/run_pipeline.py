@@ -5,8 +5,9 @@
     uv run python -m houseprice.scripts.run_pipeline [--pages N]
 
 流程:
+    0. 登录：正式爬取前直接打开登录页，人工完成登录（登录态持久化）
     1. 爬取：遍历南京全部行政区，自动解析商圈并逐商圈抓取（每商圈一个 JSON）
-    2. 入库：合并 JSON 按 source_url upsert 到 MySQL，并落行政区/商圈快照
+    2. 入库：合并 JSON 全量覆盖写入 MySQL（先删除上一次同平台数据），并落行政区/商圈快照
     3. 静态页：渲染 docs/index.html
     4. 发布：git add/commit/push docs/index.html，触发 GitHub Pages 更新
 """
@@ -21,7 +22,7 @@ from pathlib import Path
 
 from houseprice.getdata.save import save_output_files
 from houseprice.getdata.spiders.base import DEFAULT_OUTPUT_DIR, PROJECT_ROOT
-from houseprice.getdata.spiders.beike import crawl_all_district_businesses
+from houseprice.getdata.spiders.beike import crawl_all_district_businesses, login_beike
 from houseprice.scripts import build_static
 
 
@@ -50,28 +51,38 @@ def git_publish() -> bool:
     return True
 
 
-async def run_pipeline(pages: int, skip_crawl: bool = False) -> None:
-    step(f"开始定时全流程（pages={pages}，skip_crawl={skip_crawl}）")
+async def run_pipeline(
+    pages: int,
+    skip_crawl: bool = False,
+    login_url: str | None = None,
+    login_timeout: int | None = None,
+) -> None:
+    step(f"开始定时全流程（pages={pages}，skip_crawl={skip_crawl}，login_timeout={login_timeout}）")
 
     if skip_crawl:
-        step("步骤 1/4：已跳过爬取（--skip-crawl），复用现有 JSON")
+        step("步骤 1/5：已跳过爬取（--skip-crawl），复用现有 JSON")
     else:
-        step("步骤 1/4：爬取全城行政区商圈")
+        step("步骤 1/5：人工登录（直接打开登录页）")
+        if not login_beike(login_url=login_url, timeout=login_timeout):
+            # 无人值守场景：登录超时直接中止，避免空数据全量覆盖清空数据库
+            step("登录未完成（超时或未确认），中止流程，本次不更新数据")
+            return
+        step("步骤 2/5：爬取全城行政区商圈")
         # 同步阻塞的浏览器任务须留在主线程（DrissionPage 依赖），直接调用
         total = crawl_all_district_businesses(
             pages, "nj", output_dir=DEFAULT_OUTPUT_DIR
         )
         step(f"爬取完成，共 {total} 条")
 
-    step("步骤 2/4：写入数据库")
+    step("步骤 3/5：写入数据库（全量覆盖）")
     files = sorted(DEFAULT_OUTPUT_DIR.glob("*.json"))
-    updated, added, _ = await save_output_files(files)
-    step(f"入库完成：更新 {updated} 条，新增 {added} 条")
+    _, added, _ = await save_output_files(files)
+    step(f"入库完成：全量覆盖 {added} 条（已删除上一次抓取的数据）")
 
-    step("步骤 3/4：生成静态页面")
+    step("步骤 4/5：生成静态页面")
     await build_static.main()
 
-    step("步骤 4/4：推送到 GitHub Pages")
+    step("步骤 5/5：推送到 GitHub Pages")
     git_publish()
     step("全流程完成")
 
@@ -82,8 +93,12 @@ def main() -> None:
                         help="每个商圈抓取页数（每页约20条），默认3")
     parser.add_argument("--skip-crawl", action="store_true",
                         help="跳过爬取步骤，直接复用现有 JSON 跑入库/静态页/推送")
+    parser.add_argument("--login-url", default=None,
+                        help="贝壳登录页 URL（不传则用 beike.py 中 BEIKE_LOGIN_URL 常量）")
+    parser.add_argument("--login-timeout", type=int, default=600,
+                        help="登录等待超时（秒），默认600；超时未登录则中止流程，避免空数据覆盖数据库")
     args = parser.parse_args()
-    asyncio.run(run_pipeline(args.pages, args.skip_crawl))
+    asyncio.run(run_pipeline(args.pages, args.skip_crawl, args.login_url, args.login_timeout))
 
 
 if __name__ == "__main__":

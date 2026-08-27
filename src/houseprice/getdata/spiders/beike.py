@@ -16,20 +16,28 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import os
 import re
 import struct
 from pathlib import Path
 
 import requests
+from dotenv import load_dotenv
 from DrissionPage.common import Actions
 from DrissionPage.errors import ElementNotFoundError, NoRectError
 from houseprice.getdata.spiders.base import (
-    _CAPTCHA_URL_KEYWORDS, DEFAULT_OUTPUT_DIR, FilterOptionDiscoverer, Spider,
-    build_output_name, save,
+    _CAPTCHA_URL_KEYWORDS, DEFAULT_OUTPUT_DIR,
+    PROJECT_ROOT, FilterOptionDiscoverer, Spider, build_output_name,
+    manual_login, save,
 )
 
 ITEM_SELECTOR = ".content__list--item"
 SOURCE_PLATFORM = "贝壳租房"
+
+# 加载项目根目录的 .env（含 BEIKE_LOGIN_URL），不依赖启动时的工作目录
+load_dotenv(PROJECT_ROOT / ".env")
+# 贝壳登录页 URL：优先读 .env 的 BEIKE_LOGIN_URL，未配置时用默认值
+BEIKE_LOGIN_URL = os.getenv("BEIKE_LOGIN_URL") or "https://passport.ke.com/login"
 
 # 南京行政区白名单：解析出的 district 不在此列说明是营销位/活动卡片等脏数据
 VALID_DISTRICTS = {
@@ -88,6 +96,22 @@ def parse_item(item, target: str | None = None) -> dict | None:
         "source_platform": SOURCE_PLATFORM,
         "source_url": source_url,  # 房源链接（唯一，用于去重）
     }
+
+
+def login_beike(
+    login_url: str | None = None,
+    timeout: int | None = None,
+) -> bool:
+    """贝壳登录步骤：直接打开登录页供人工登录，返回是否已确认登录。
+
+    供定时流程在正式爬取前调用：弹出浏览器直接打开登录页，人工完成登录
+    （登录态持久化到 .browser_profile，之后无需重复登录）。
+    login_url 不传时使用 BEIKE_LOGIN_URL 常量；timeout 不传则一直等待登录完成。
+    """
+    return manual_login(
+        login_url=login_url or BEIKE_LOGIN_URL,
+        timeout=timeout,
+    )
 
 
 def crawl(

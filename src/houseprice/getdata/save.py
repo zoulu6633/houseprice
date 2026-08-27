@@ -1,7 +1,8 @@
 """将爬取到的房源数据写入数据库。
 
 读取抓取的 JSON（字段与 houseprice.model.house.HouseListing 对齐），
-按 source_url 作为唯一键 upsert 写入 house_listings 表：已存在则更新，不存在则插入。
+**先删除该平台上一次抓取的全部数据，再整批写入本次数据**（全量覆盖）。
+库中只保留最近一次抓取的「当前在租」房源，使网页统计与区域快照口径一致。
 
 用法:
     python -m houseprice.getdata.save                          # 处理 output 目录下全部 JSON
@@ -17,7 +18,7 @@ from collections import Counter
 from datetime import datetime, time
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from houseprice.db_config import AsyncSession_Local, async_engine, create_tables
@@ -27,38 +28,27 @@ DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent / "output"
 
 
 async def save_to_db(data: list[dict]) -> tuple[int, int, bool]:
-    """按 source_url upsert 写入 house_listings，返回 (更新条数, 新增条数, 是否写入快照)。
+    """全量覆盖写入 house_listings，返回 (更新条数, 新增条数, 是否写入快照)。
 
-    已存在的房源用本次抓取字段覆盖（first_crawled_at 保持首次抓取时间），
-    新出现的房源插入；写入后对本次抓取数据按行政区聚合，落一次区域快照。
+    先删除该平台上一次抓取的全部数据（保证库中只留本次抓取的「当前在租」
+    房源，网页统计与区域快照口径一致），再整批插入；写入后对本次抓取数据
+    按行政区聚合，落一次区域快照。
     """
     if not data:
         return 0, 0, False
 
     await create_tables()  # 幂等建表，保证表存在
 
-    urls = [row["source_url"] for row in data]
+    platform = data[0].get("source_platform", "贝壳租房")
     async with AsyncSession_Local() as session:
-        existing = await session.scalars(
-            select(HouseListing).where(HouseListing.source_url.in_(urls))
+        # 无条件删除该平台上一次抓取的全部数据（本次抓取不完整也不保护）
+        await session.execute(
+            delete(HouseListing).where(HouseListing.source_platform == platform)
         )
-        existing_by_url = {h.source_url: h for h in existing}
-
-        updated = 0
-        for row in data:
-            url = row["source_url"]
-            if url in existing_by_url:
-                house = existing_by_url[url]
-                for key, value in row.items():
-                    setattr(house, key, value)
-                updated += 1
-            else:
-                session.add(HouseListing(**row))
-
-        new_count = len(data) - updated
+        session.add_all(HouseListing(**row) for row in data)
         await session.commit()
         snapshot_written = await save_snapshots(session, data)
-        return updated, new_count, snapshot_written
+        return 0, len(data), snapshot_written
 
 
 async def save_output_files(files: list[Path]) -> tuple[int, int, bool]:
@@ -171,9 +161,9 @@ async def main() -> None:
         await async_engine.dispose()
         return
 
-    updated, added, snapshot_written = await save_output_files(files)
+    _, added, snapshot_written = await save_output_files(files)
     snapshot_msg = "已记录区域快照" if snapshot_written else "今日已有区域快照，跳过"
-    print(f"完成：合并 {len(files)} 个文件，更新 {updated} 条，新增 {added} 条；{snapshot_msg}")
+    print(f"完成：合并 {len(files)} 个文件，全量覆盖 {added} 条（已删除上一次数据）；{snapshot_msg}")
     await async_engine.dispose()  # 关闭连接池，避免退出时的告警
 
 
