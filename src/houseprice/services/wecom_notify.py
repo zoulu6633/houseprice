@@ -97,11 +97,11 @@ async def notify() -> bool:
 
 
 async def main() -> None:
-    # try:
-    #     await notify()
-    # finally:
-    #     await async_engine.dispose()  # 关闭连接池，避免退出时告警
-    print(WECOM_WEBHOOK_URL)
+    try:
+        await notify()
+    finally:
+        await async_engine.dispose()  # 关闭连接池，避免退出时告警
+    # print(WECOM_WEBHOOK_URL)
 
 
 if __name__ == "__main__":
