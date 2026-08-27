@@ -9,12 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from houseprice.db_config import get_db
 from houseprice.services.report_service import build_price_report, build_report, make_data_json
 
-router = APIRouter(prefix="/report", tags=["report"])
+router = APIRouter(tags=["report"])
 
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "templates"))
 
 
-@router.get("")
+@router.get("/")
 async def report_page(
     request: Request, db: AsyncSession = Depends(get_db)
 ) -> "TemplateResponse":

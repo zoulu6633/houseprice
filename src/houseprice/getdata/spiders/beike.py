@@ -24,7 +24,8 @@ import requests
 from DrissionPage.common import Actions
 from DrissionPage.errors import ElementNotFoundError, NoRectError
 from houseprice.getdata.spiders.base import (
-    DEFAULT_OUTPUT_DIR, FilterOptionDiscoverer, Spider, build_output_name, save,
+    _CAPTCHA_URL_KEYWORDS, DEFAULT_OUTPUT_DIR, FilterOptionDiscoverer, Spider,
+    build_output_name, save,
 )
 
 ITEM_SELECTOR = ".content__list--item"
@@ -236,8 +237,10 @@ def get_code(bg_base64: str) -> list[dict] | None:
 
     # 依次尝试三种类型，前一个识别失败（接口报错或坐标无效）时用 else 换下一个
     try:
-        # timeout=(连接超时, 读取超时)，避免 DNS/网络异常时长时间卡住
-        response = requests.post(link, headers=_headers, json=data_1).json()
+        # timeout=(连接超时, 读取超时)，避免 DNS/网络异常或打码平台无响应时长时间卡住
+        response = requests.post(
+            link, headers=_headers, json=data_1, timeout=(6, 12)
+        ).json()
     except requests.RequestException as e:  # 网络异常（DNS/超时/断连）不崩溃
         print(f"[警告] 打码接口请求超时 （type={data_1['type']}）：{e}")
         return None
@@ -272,15 +275,20 @@ def get_code(bg_base64: str) -> list[dict] | None:
 def is_captcha_required(dp) -> bool:
     """检测并尝试自动通过极验人机验证，返回 True 表示页面出现了验证码。
 
-    出现「点击按钮开始验证」时点击启动，对弹出的点选背景图截图并调用
-    get_code() 识别坐标，逐个点击后点「确定」提交。页面（含已跳转到验证
-    页的情况）找不到验证按钮时返回 False，由 ensure_loaded 按登录墙兜底。
+    先按 URL 判断是否已进入验证界面（命中 captcha/verify/antibot 关键词），
+    命中后再探测验证按钮并自动破解；正常列表页 URL 不含关键词，直接返回
+    False，省去每页固定等待的 DOM 轮询。找不到验证按钮时返回 False，
+    由 ensure_loaded 按登录墙兜底。
     """
-    # 不按 URL 提前返回：验证页若带验证按钮仍继续尝试自动通过；
-    # 无验证控件时返回 False，ensure_loaded 仍能识别验证页并提示手动处理
+    # 先 URL 短路：正常列表页不进入 DOM 检测（原实现每页轮询按钮 2s 才超时）；
+    # 只有被重定向到独立验证页（URL 含验证关键词）时才继续检测按钮并自动破解
+    if not any(k in dp.url.lower() for k in _CAPTCHA_URL_KEYWORDS):
+        return False
+    # 验证界面内按钮由 JS 异步渲染，需留足等待时间（原实现的 2s 开销是
+    # 每页都白等；现在只有验证页才走到这里，等 2s 成本可接受）；
     # 注意：ele() 找不到时返回 NoneElement（不抛异常），须用布尔判断而非 except
     btn = dp.ele("css:.geetest_btn_click", timeout=2)
-    if not btn:  # 页面未出现「点击按钮开始验证」，本次无需处理
+    if not btn:  # 验证界面无「点击按钮开始验证」控件，交由 ensure_loaded 兜底
         return False
     btn.click()
     print("点击验证按钮")
