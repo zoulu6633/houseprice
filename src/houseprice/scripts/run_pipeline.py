@@ -10,6 +10,7 @@
     2. 入库：合并 JSON 全量覆盖写入 MySQL（先删除上一次同平台数据），并落行政区/商圈快照
     3. 静态页：渲染 docs/index.html
     4. 发布：git add/commit/push docs/index.html，触发 GitHub Pages 更新
+    5. 排程：注册一次性任务，在本次爬取后的下一个 09:00 推送企业微信日报
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import subprocess
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from houseprice.getdata.save import save_output_files
@@ -49,6 +50,32 @@ def git_publish() -> bool:
     subprocess.run(["git", "push"], check=True, cwd=PROJECT_ROOT)
     step("已推送 GitHub Pages 更新")
     return True
+
+
+def schedule_wecom_notify() -> None:
+    """注册一次性任务：在「本次爬取后的下一个 09:00」推送企业微信日报。
+
+    固定任务名 houseprice_wecom，/F 覆盖式注册：同一天多次爬取只保留
+    最近一次安排（只推一次），任务列表不堆积；当天不爬取则不会注册、
+    不会推送。推送动作本身由根目录 wecom_notify.bat 承担。
+    """
+    now = datetime.now()
+    target = now.replace(hour=9, minute=0, second=0, microsecond=0)
+    if now >= target:  # 已过今天 9 点 → 安排明天 9 点
+        target += timedelta(days=1)
+    bat = PROJECT_ROOT / "wecom_notify.bat"
+    tr = str(bat) if " " not in str(bat) else f'"{bat}"'
+    try:
+        subprocess.run(
+            ["schtasks", "/Create", "/TN", "houseprice_wecom", "/SC", "ONCE",
+             "/SD", target.strftime("%Y/%m/%d"), "/ST", target.strftime("%H:%M"),
+             "/TR", tr, "/F"],
+            check=True, cwd=PROJECT_ROOT, capture_output=True, text=True,
+        )
+    except subprocess.CalledProcessError as e:
+        step(f"[警告] 注册企业微信推送任务失败：{(e.stderr or '').strip() or e}")
+        return
+    step(f"已安排企业微信日报于 {target:%Y-%m-%d %H:%M} 推送")
 
 
 async def run_pipeline(
@@ -84,6 +111,9 @@ async def run_pipeline(
 
     step("步骤 5/5：推送到 GitHub Pages")
     git_publish()
+
+    schedule_wecom_notify()  # 安排下次 09:00 推送企业微信日报（内部打印结果）
+
     step("全流程完成")
 
 
