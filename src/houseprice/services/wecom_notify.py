@@ -36,33 +36,58 @@ GITHUB_PAGES_URL = "https://zoulu6633.github.io/houseprice/"
 def format_message(trends: list[dict], current_at: str, last_at: str) -> str:
     """把各区环比数据格式化为企业微信 markdown 消息文本。
 
-    trends 为 build_price_report 返回的各区环比列表（含"全部"，
-    这里跳过），每个元素含行政区名、平均租金、环比与在租数量。
+    trends 为 build_price_report 返回的各区环比列表（"全部"在最前），
+    这里提取"全部"作全市汇总置顶；"独栋"是无行政区房源的兜底分组，
+    两者均不逐区推送。各区保持 trends 原有顺序（"全部"在前 + 字典序）。
     """
-    lines = ["**南京租房行情日报**", ""]
-    lines.append(f"数据批次：{current_at}（对比 {last_at}）")
-    lines.append("")
 
-    for t in trends:
-        if t["district"] in ("全部", "独栋"):
-            continue  # "全部"为全城汇总，"独栋"是无行政区房源的兜底分组，均不单独推送
-
-        avg_rent = t["current_avg_rent"]
-        rent_desc = f"{avg_rent:g} 元" if avg_rent is not None else "无数据"
+    def rent_desc(t: dict) -> str:
+        """拼接"平均租金 + 环比"描述，如「3003 元，环比 -17.0%（-616 元）」。"""
+        avg = t["current_avg_rent"]
+        text = f"{avg:g} 元" if avg is not None else "无数据"
         pct, delta = t["rent_delta_pct"], t["rent_delta"]
         if pct is not None:
             sign = "+" if pct >= 0 else ""
-            rent_desc += f"，环比 {sign}{pct}%（{delta:+g} 元）"
+            text += f"，环比 {sign}{pct}%（{delta:+g} 元）"
         else:
-            rent_desc += "（暂无环比）"
+            text += "（暂无环比）"
+        return text
 
-        lines.append(f"**{t['district']}**：平均租金 {rent_desc}")
+    def trend_icon(pct: float | None) -> str:
+        """涨跌图标：上涨 📈、下跌 📉、无环比数据 📊。"""
+        if pct is None:
+            return "📊"
+        return "📈" if pct >= 0 else "📉"
+
+    lines = ["# 🏠 南京租房行情汇总", ""]
+    lines.append(f"> 📅 数据批次：{current_at} ｜ 上期：{last_at}")
+    lines.append("")
+
+    overall = next((t for t in trends if t["district"] == "全部"), None)
+    if overall is not None:
         lines.append(
-            f"在租 {t['current_count']} 套（上期 {t['last_count']} 套，{t['count_delta']:+d}）"
+            f"**📊 全市**：平均租金 {rent_desc(overall)}"
+            f"｜在租 {overall['current_count']} 套"
+            f"（上期 {overall['last_count']} 套，{overall['count_delta']:+d}）"
+        )
+        lines.extend(["", "---", ""])
+
+    for t in trends:
+        if t["district"] in ("全部", "独栋"):
+            continue  # 汇总行已单独展示，"独栋"不单独推送
+
+        lines.append(
+            f"{trend_icon(t['rent_delta_pct'])} **{t['district']}**：平均租金 {rent_desc(t)}"
+            f"｜在租 {t['current_count']} 套"
+            f"（上期 {t['last_count']} 套，{t['count_delta']:+d}）"
         )
         lines.append("")
 
-    lines.append(f"详情页：[点击查看完整报告]({GITHUB_PAGES_URL})")
+    lines.append("---")
+    lines.append(
+        f"🔗 详情页：[点击查看完整报告]({GITHUB_PAGES_URL})"
+        "（查看各区租金明细、租金分布、热门小区排行）"
+    )
     return "\n".join(lines).strip()
 
 
