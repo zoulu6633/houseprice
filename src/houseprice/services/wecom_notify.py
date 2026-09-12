@@ -29,8 +29,8 @@ load_dotenv(PROJECT_ROOT / ".env")
 WECOM_WEBHOOK_URL = os.getenv("WECOM_WEBHOOK_URL")
 
 
-# GitHub Pages 静态详情页（完整报告）
-GITHUB_PAGES_URL = "https://zoulu6633.github.io/houseprice/"
+# GitHub Pages 静态详情页（完整报告），从环境变量读取，未配置则用空字符串
+GITHUB_PAGES_URL = os.getenv("GITHUB_PAGES_URL", "")
 
 
 def format_message(trends: list[dict], current_at: str, last_at: str) -> str:

@@ -1,7 +1,7 @@
 [project]
 name = "houseprice"
 version = "0.1.0"
-description = "Add your description here"
+description = "南京租房数据自动采集、分析与可视化监控系统"
 readme = "README.md"
 authors = [
     { name = "Zwt", email = "'14358719+zhong-wentao123@user.noreply.gitee.com'" }
